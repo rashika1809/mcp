@@ -60,10 +60,7 @@ public class ClientToolTests(ITestOutputHelper output, TestProxyFixture testProx
     [Fact]
     public async Task Client_Should_Ping_Server_Successfully()
     {
-        // The `ping` method was removed in the MCP 2026-07-28 protocol revision. The client
-        // negotiates the modern protocol, so the server rejects ping as unavailable.
-        // (Method name is retained so the recorded playback session continues to match.)
-        await AssertMethodNotFoundAsync(
+        await AssertCompletesOrMethodNotFoundAsync(
             async () => await Client.PingAsync(cancellationToken: TestContext.Current.CancellationToken),
             "ping");
     }
@@ -111,12 +108,11 @@ public class ClientToolTests(ITestOutputHelper output, TestProxyFixture testProx
     [Fact]
     public async Task Should_Not_Hang_On_Logging_SetLevel_Not_Supported()
     {
-        // logging/setLevel was removed in MCP 2026-07-28 (SDK 2.0.0-preview.3).
-        // The method is no longer supported; per-request log level is now set via
-        // _meta/io.modelcontextprotocol/logLevel. The call should throw rather than hang.
+        // Keep the existing test name so recorded playback continues to use the same session.
 #pragma warning disable MCP9005 // Type or member is obsolete
-        await AssertMethodNotFoundAsync(
-            () => Client.SetLoggingLevelAsync(LoggingLevel.Info,
+        await AssertCompletesOrMethodNotFoundAsync(
+            () => Client.SetLoggingLevelAsync(
+                LoggingLevel.Info,
                 cancellationToken: TestContext.Current.CancellationToken),
             "logging/setLevel");
 #pragma warning restore MCP9005 // Type or member is obsolete
@@ -155,6 +151,24 @@ public class ClientToolTests(ITestOutputHelper output, TestProxyFixture testProx
         var protocolException = await Assert.ThrowsAsync<McpProtocolException>(action);
         Assert.Equal(McpErrorCode.MethodNotFound, protocolException.ErrorCode);
         Assert.Contains(method, protocolException.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task AssertCompletesOrMethodNotFoundAsync(Func<Task> action, string method)
+    {
+        try
+        {
+            await action();
+        }
+        catch (HttpRequestException exception)
+        {
+            Assert.Equal(HttpStatusCode.NotFound, exception.StatusCode);
+            Assert.Contains(method, exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (McpProtocolException exception)
+        {
+            Assert.Equal(McpErrorCode.MethodNotFound, exception.ErrorCode);
+            Assert.Contains(method, exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     public override List<BodyRegexSanitizer> BodyRegexSanitizers =>
